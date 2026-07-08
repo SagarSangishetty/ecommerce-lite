@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Error — Ecommerce Lite</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 500px; margin: 40px auto; padding: 0 20px; }
+    nav { margin-bottom: 30px; }
+    nav a { margin-right: 20px; text-decoration: none; color: #333; font-weight: bold; }
+    .error { padding: 16px; background: #fff0f0; border: 1px solid #ffcccc;
+             border-radius: 4px; color: #cc0000; }
+    .trace-id { margin-top: 40px; font-size: 0.75em; color: #999; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="/">Products</a>
+    <a href="/register">Register</a>
+    <a href="/order">Place Order</a>
+  </nav>
+
+  <h1>Something went wrong</h1>
+
+  <div class="error"><%= message %></div>
+
+  <a href="/">← Back to home</a>
+
+  <p class="trace-id">Request ID: <%= request_id %></p>
+
+</body>
+</html>
