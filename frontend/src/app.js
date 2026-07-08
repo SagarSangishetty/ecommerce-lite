@@ -242,3 +242,61 @@ app.post('/order', async (req, res) => {
       request_id: req.requestId,
       order_id:   response.data.id,
       total:      response.data.total_price
+    });
+
+    // Reload products for the form
+    const products = await backendCall(req.requestId)
+      .get(`${PRODUCT_SERVICE_URL}/products`);
+
+    res.render('order', {
+      products:   products.data,
+      request_id: req.requestId,
+      message:    `Order #${response.data.id} placed! Total: ₹${response.data.total_price}`
+    });
+
+  } catch (err) {
+    const detail = err.response?.data?.detail || err.message;
+
+    logger.error({
+      event:      'order_placement_failed',
+      request_id: req.requestId,
+      error:      detail
+    });
+
+    const products = await backendCall(req.requestId)
+      .get(`${PRODUCT_SERVICE_URL}/products`)
+      .catch(() => ({ data: [] }));
+
+    res.render('order', {
+      products:   products.data,
+      request_id: req.requestId,
+      message:    `Error: ${detail}`
+    });
+  }
+});
+
+
+// HEALTH CHECK
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', service: 'frontend' });
+});
+
+
+// PROMETHEUS METRICS
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
+});
+
+
+// ── START SERVER ────────────────────────────────────────────────
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  logger.info({
+    event:   'service_startup',
+    service: 'frontend',
+    port:    PORT,
+    message: `Frontend running on port ${PORT}`
+  });
+});
