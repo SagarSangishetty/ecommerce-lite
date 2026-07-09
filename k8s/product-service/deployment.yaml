@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: product-service
-          image: PLACEHOLDER_IMAGE
+          image: 169976490560.dkr.ecr.us-east-1.amazonaws.com/ecommerce-lite/product-service:latest
           ports:
             - containerPort: 8002
 
