@@ -1,0 +1,12 @@
+# dev-namespace.yaml
+# Isolated environment for development
+# All dev resources live here — separate from prod
+# Mistake in dev cannot affect prod namespace
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce-dev
+  labels:
+    environment: dev
+    project: ecommerce-lite

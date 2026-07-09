@@ -1,0 +1,87 @@
+# user-service/deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: ecommerce-dev
+  labels:
+    app: user-service
+    environment: dev
+spec:
+  replicas: 2               # 2 replicas for availability
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+        environment: dev
+      annotations:
+        # Tells Prometheus to scrape this pod
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "8001"
+        prometheus.io/path:   "/metrics"
+    spec:
+      containers:
+        - name: user-service
+          image: 169976490560.dkr.ecr.us-east-1.amazonaws.com/ecommerce-lite/user-service:latest   # replaced by CI/CD pipeline
+          ports:
+            - containerPort: 8001
+
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                 name: app-secret
+                 key: DATABASE_URL
+
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+               configMapKeyRef:
+                  name: app-config
+                  key: OTEL_ENDPOINT
+
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OTEL_SERVICE_NAME_USER    
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+
+          # Readiness probe — pod gets traffic only when ready
+          # Uses our /health endpoint
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # Liveness probe — restart pod if health fails
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+
+          # Startup probe — gives app time to start
+          # before liveness probe takes over
+          # Prevents killing pod that's still initialising
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            failureThreshold: 10
+            periodSeconds: 5

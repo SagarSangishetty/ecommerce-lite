@@ -1,0 +1,22 @@
+# user-service/service.yaml
+# ClusterIP — internal only
+# Other services reach user-service at:
+# http://user-service.ecommerce-dev.svc.cluster.local:8001
+# Or simply http://user-service:8001 within same namespace
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: ecommerce-dev
+  labels:
+    app: user-service
+    environment: dev
+spec:
+  type: ClusterIP
+  selector:
+    app: user-service
+  ports:
+    - port: 8001
+      targetPort: 8001
+      protocol: TCP

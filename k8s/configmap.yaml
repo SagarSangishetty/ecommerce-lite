@@ -1,0 +1,21 @@
+# configmap.yaml
+# Non-sensitive configuration shared across all services
+# Rule: secrets for passwords/keys, configmap for everything else
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: ecommerce-dev
+  labels:
+    environment: dev
+    project: ecommerce-lite
+data:
+  USER_SERVICE_URL:    "http://user-service.ecommerce-dev.svc.cluster.local:8001"
+  PRODUCT_SERVICE_URL: "http://product-service.ecommerce-dev.svc.cluster.local:8002"
+  ORDER_SERVICE_URL:   "http://order-service.ecommerce-dev.svc.cluster.local:8003"
+  OTEL_ENDPOINT:       "http://otel-collector.observability.svc.cluster.local:4317"
+  OTEL_SERVICE_NAME_USER:    "user-service"
+  OTEL_SERVICE_NAME_PRODUCT: "product-service"
+  OTEL_SERVICE_NAME_ORDER:   "order-service"
+  OTEL_SERVICE_NAME_FRONTEND: "frontend"
