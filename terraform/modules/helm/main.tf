@@ -156,3 +156,39 @@ resource "helm_release" "external_secrets" {
 
   depends_on = [kubernetes_namespace.external_secrets]
 }
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ClusterSecretStore — aws-secret-store
+#
+# Cluster-wide connection config: tells ESO *how* to authenticate to AWS
+# Secrets Manager. Any ExternalSecret in any namespace can reference this
+# via secretStoreRef. Auth uses the external-secrets ServiceAccount's IRSA
+# role (annotated above), so no static AWS credentials are stored anywhere.
+# ═══════════════════════════════════════════════════════════════════════════════
+resource "kubernetes_manifest" "cluster_secret_store" {
+  manifest = {
+    apiVersion = "external-secrets.io/v1"
+    kind       = "ClusterSecretStore"
+    metadata = {
+      name = "aws-secret-store"
+    }
+    spec = {
+      provider = {
+        aws = {
+          service = "SecretsManager"
+          region  = var.aws_region
+          auth = {
+            jwt = {
+              serviceAccountRef = {
+                name      = "external-secrets"
+                namespace = kubernetes_namespace.external_secrets.metadata[0].name
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [helm_release.external_secrets]
+}

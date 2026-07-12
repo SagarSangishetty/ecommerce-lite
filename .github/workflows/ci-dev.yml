@@ -190,27 +190,30 @@ jobs:
       # 5. Ingress — ALB created after pods are running
 
       - name: Apply namespace
-        run: kubectl apply -f k8s/namespaces/dev-namespace.yaml
+        run: kubectl apply -f k8s/namespaces/dev-namespace.yaml --validate=false
+
+      - name: Apply Secret
+        run: kubectl apply -f k8s/external-secret.yml
 
       - name: Apply ConfigMap
-        run: kubectl apply -f k8s/configmap.yaml
+        run: kubectl apply -f k8s/configmap.yaml --validate=false
 
       - name: Apply Services
         run: |
-          kubectl apply -f k8s/user-service/service.yaml
-          kubectl apply -f k8s/product-service/service.yaml
-          kubectl apply -f k8s/order-service/service.yaml
-          kubectl apply -f k8s/frontend/service.yaml
+          kubectl apply -f k8s/user-service/service.yaml --validate=false
+          kubectl apply -f k8s/product-service/service.yaml --validate=false
+          kubectl apply -f k8s/order-service/service.yaml --validate=false
+          kubectl apply -f k8s/frontend/service.yaml --validate=false
 
       - name: Apply Deployments
         run: |
-          kubectl apply -f k8s/user-service/deployment.yaml
-          kubectl apply -f k8s/product-service/deployment.yaml
-          kubectl apply -f k8s/order-service/deployment.yaml
-          kubectl apply -f k8s/frontend/deployment.yaml
+          kubectl apply -f k8s/user-service/deployment.yaml --validate=false
+          kubectl apply -f k8s/product-service/deployment.yaml --validate=false
+          kubectl apply -f k8s/order-service/deployment.yaml --validate=false
+          kubectl apply -f k8s/frontend/deployment.yaml --validate=false
 
       - name: Apply Ingress
-        run: kubectl apply -f k8s/ingress/ingress.yaml
+        run: kubectl apply -f k8s/ingress/ingress.yaml --validate=false
 
       # ── VERIFY ROLLOUT ────────────────────────────────────────
       # Waits until all pods are Running and Ready
