@@ -192,6 +192,9 @@ jobs:
       - name: Apply namespace
         run: kubectl apply -f k8s/namespaces/dev-namespace.yaml --validate=false
 
+      - name: Apply Secret
+        run: kubectl apply -f k8s/external-secret.yml
+
       - name: Apply ConfigMap
         run: kubectl apply -f k8s/configmap.yaml --validate=false
 

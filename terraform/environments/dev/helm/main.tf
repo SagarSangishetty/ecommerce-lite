@@ -30,6 +30,18 @@ data "terraform_remote_state" "vpc" {
 }
 
 # ─── AWS provider ─────────────────────────────────────────────────────────────
+
+provider "kubectl" {
+  # reuse the same connection config as your existing kubernetes/helm providers
+  host                   = data.terraform_remote_state.eks.outputs.cluster_endpoint
+  cluster_ca_certificate = base64decode(data.terraform_remote_state.eks.outputs.cluster_ca_certificate)
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", var.cluster_name]
+  }
+}
+
 provider "aws" {
   region = var.aws_region
 
@@ -208,4 +220,32 @@ resource "helm_release" "external_secrets" {
   }
 
   depends_on = [kubernetes_namespace.external_secrets]
+}
+
+resource "kubectl_manifest" "cluster_secret_store" {
+  yaml_body = yamlencode({
+    apiVersion = "external-secrets.io/v1beta1"
+    kind       = "ClusterSecretStore"
+    metadata = {
+      name = "aws-secret-store"
+    }
+    spec = {
+      provider = {
+        aws = {
+          service = "SecretsManager"
+          region  = var.aws_region
+          auth = {
+            jwt = {
+              serviceAccountRef = {
+                name      = "external-secrets"
+                namespace = kubernetes_namespace.external_secrets.metadata[0].name
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+
+  depends_on = [helm_release.external_secrets]
 }
