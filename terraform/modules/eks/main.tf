@@ -250,6 +250,20 @@ resource "aws_iam_role_policy_attachment" "ebs_csi_driver_policy" {
 
 
 # ─── 6. Managed Node Group ────────────────────────────────────────────────────
+
+resource "aws_launch_template" "node" {
+  name_prefix = "${local.name_prefix}-node-lt"
+
+  vpc_security_group_ids = [aws_security_group.node.id]
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = merge(local.common_tags, {
+      Name = "${local.name_prefix}-general-node"
+    })
+  }
+}
+
 resource "aws_eks_node_group" "general" {
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = "${local.name_prefix}-general"
@@ -257,19 +271,21 @@ resource "aws_eks_node_group" "general" {
   subnet_ids      = var.private_subnet_ids
   instance_types  = [var.node_instance_type]
 
+  launch_template {
+    id      = aws_launch_template.node.id
+    version = "$Latest"
+  }
+
   scaling_config {
     desired_size = var.node_desired_size
     min_size     = var.node_min_size
     max_size     = var.node_max_size
   }
 
-  # Rolling update — keeps cluster available during node group updates
   update_config {
     max_unavailable = 1
   }
 
-  # Nodes must be created after all node role policies are attached
-  # Without this, nodes can't register with the cluster
   depends_on = [
     aws_iam_role_policy_attachment.node_worker_policy,
     aws_iam_role_policy_attachment.node_cni_policy,
