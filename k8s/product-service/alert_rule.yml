@@ -1,0 +1,31 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: product-service-alerts
+  namespace: ecommerce-dev
+spec:
+  groups:
+    - name: product-service.rules
+      rules:
+
+        - alert: ProductServiceDown
+          expr: up{service="product-service"} == 0
+          for: 1m
+
+          labels:
+            severity: critical
+
+          annotations:
+            summary: Product Service is down
+            description: Product Service has not been reachable for more than 2 minutes.
+
+        - alert: ProductServiceHighCPU
+          expr: rate(container_cpu_usage_seconds_total{pod=~"product-service.*"}[5m]) > 0.8
+          for: 1m
+
+          labels:
+            severity: warning
+
+          annotations:
+            summary: Product Service CPU usage is high
+            description: CPU usage has exceeded 80%.

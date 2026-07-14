@@ -31,6 +31,10 @@ data "terraform_remote_state" "vpc" {
 
 # ─── AWS provider ─────────────────────────────────────────────────────────────
 
+locals {
+  grafana_admin_secret_name = "grafana-admin"
+}
+
 provider "kubectl" {
   # reuse the same connection config as your existing kubernetes/helm providers
   host                   = data.terraform_remote_state.eks.outputs.cluster_endpoint
@@ -99,7 +103,40 @@ resource "kubernetes_namespace" "external_secrets" {
   }
 }
 
+resource "kubernetes_namespace" "observability" {
+  metadata {
+    name = var.observability_namespace
+    labels = {
+      "app.kubernetes.io/managed-by" = "terraform"
+      environment                    = var.environment
+      project                        = var.project
+    }
+  }
+}
+
+resource "kubernetes_storage_class_v1" "observability_gp3" {
+  metadata {
+    name = var.observability_storage_class_name
+    labels = {
+      "app.kubernetes.io/managed-by" = "terraform"
+      environment                    = var.environment
+      project                        = var.project
+    }
+  }
+
+  storage_provisioner    = "ebs.csi.aws.com"
+  reclaim_policy         = "Retain"
+  volume_binding_mode    = "WaitForFirstConsumer"
+  allow_volume_expansion = true
+
+  parameters = {
+    type      = "gp3"
+    encrypted = "true"
+  }
+}
+
 # ─── Helm Release: AWS Load Balancer Controller ───────────────────────────────
+
 resource "helm_release" "lb_controller" {
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
@@ -248,4 +285,544 @@ resource "kubectl_manifest" "cluster_secret_store" {
   })
 
   depends_on = [helm_release.external_secrets]
+}
+
+resource "kubectl_manifest" "grafana_admin_external_secret" {
+  yaml_body = yamlencode({
+    apiVersion = "external-secrets.io/v1beta1"
+    kind       = "ExternalSecret"
+    metadata = {
+      name      = local.grafana_admin_secret_name
+      namespace = kubernetes_namespace.observability.metadata[0].name
+    }
+    spec = {
+      refreshInterval = "1h"
+      secretStoreRef = {
+        name = "aws-secret-store"
+        kind = "ClusterSecretStore"
+      }
+      target = {
+        name           = local.grafana_admin_secret_name
+        creationPolicy = "Owner"
+      }
+      data = [
+        {
+          secretKey = "admin-user"
+          remoteRef = {
+            key      = var.grafana_admin_secret_remote_key
+            property = "admin-user"
+          }
+        },
+        {
+          secretKey = "admin-password"
+          remoteRef = {
+            key      = var.grafana_admin_secret_remote_key
+            property = "admin-password"
+          }
+        }
+      ]
+    }
+  })
+
+  depends_on = [
+    kubectl_manifest.cluster_secret_store,
+    kubernetes_namespace.observability
+  ]
+}
+
+resource "helm_release" "kube_prometheus_stack" {
+  name              = "kube-prometheus-stack"
+  repository        = "https://prometheus-community.github.io/helm-charts"
+  chart             = "kube-prometheus-stack"
+  namespace         = kubernetes_namespace.observability.metadata[0].name
+  version           = "87.15.1"
+  atomic            = true
+  cleanup_on_fail   = true
+  dependency_update = true
+  timeout           = 900
+  wait              = true
+
+  values = [
+    yamlencode({
+      crds = {
+        enabled = true
+      }
+
+      defaultRules = {
+        create = true
+        rules = {
+          etcd                   = false
+          kubeControllerManager  = false
+          kubeSchedulerAlerting  = false
+          kubeSchedulerRecording = false
+        }
+      }
+
+      kubeEtcd = {
+        enabled = false
+      }
+
+      kubeControllerManager = {
+        enabled = false
+      }
+
+      kubeScheduler = {
+        enabled = false
+      }
+
+      grafana = {
+        enabled = true
+
+        admin = {
+          existingSecret = local.grafana_admin_secret_name
+          userKey        = "admin-user"
+          passwordKey    = "admin-password"
+        }
+
+        service = {
+          type = "ClusterIP"
+        }
+
+        ingress = {
+          enabled = false
+        }
+
+        persistence = {
+          enabled          = true
+          storageClassName = kubernetes_storage_class_v1.observability_gp3.metadata[0].name
+          size             = "5Gi"
+        }
+
+        resources = {
+          requests = {
+            cpu    = "100m"
+            memory = "128Mi"
+          }
+          limits = {
+            cpu    = "250m"
+            memory = "256Mi"
+          }
+        }
+      }
+
+      prometheus = {
+        service = {
+          type = "ClusterIP"
+        }
+
+        prometheusSpec = {
+          replicas      = 1
+          retention     = "15d"
+          retentionSize = "8GB"
+
+          serviceMonitorSelectorNilUsesHelmValues = false
+          podMonitorSelectorNilUsesHelmValues     = false
+          probeSelectorNilUsesHelmValues          = false
+          ruleSelectorNilUsesHelmValues           = false
+          scrapeConfigSelectorNilUsesHelmValues   = false
+
+          # Watch ServiceMonitors only in ecommerce-dev
+          serviceMonitorNamespaceSelector = {
+            matchNames = [
+              "ecommerce-dev"
+             ]
+          }
+
+          # Watch PrometheusRules only in ecommerce-dev
+          ruleNamespaceSelector = {
+            matchNames = [
+              "ecommerce-dev"
+            ]
+          }
+
+          # Watch PodMonitors only in ecommerce-dev
+          podMonitorNamespaceSelector = {
+            matchNames = [
+              "ecommerce-dev"
+            ]
+          }
+
+          storageSpec = {
+            volumeClaimTemplate = {
+              spec = {
+                storageClassName = kubernetes_storage_class_v1.observability_gp3.metadata[0].name
+                accessModes      = ["ReadWriteOnce"]
+                resources = {
+                  requests = {
+                    storage = "20Gi"
+                  }
+                }
+              }
+            }
+          }
+
+          resources = {
+            requests = {
+              cpu    = "250m"
+              memory = "1Gi"
+            }
+            limits = {
+              cpu    = "1000m"
+              memory = "2Gi"
+            }
+          }
+        }
+      }
+
+      alertmanager = {
+        alertmanagerSpec = {
+          replicas  = 1
+          retention = "120h"
+
+          storage = {
+            volumeClaimTemplate = {
+              spec = {
+                storageClassName = kubernetes_storage_class_v1.observability_gp3.metadata[0].name
+                accessModes      = ["ReadWriteOnce"]
+                resources = {
+                  requests = {
+                    storage = "5Gi"
+                  }
+                }
+              }
+            }
+          }
+
+          resources = {
+            requests = {
+              cpu    = "100m"
+              memory = "128Mi"
+            }
+            limits = {
+              cpu    = "250m"
+              memory = "256Mi"
+            }
+          }
+        }
+      }
+
+      prometheusOperator = {
+        resources = {
+          requests = {
+            cpu    = "100m"
+            memory = "256Mi"
+          }
+          limits = {
+            cpu    = "500m"
+            memory = "512Mi"
+          }
+        }
+      }
+
+      "kube-state-metrics" = {
+        resources = {
+          requests = {
+            cpu    = "50m"
+            memory = "128Mi"
+          }
+          limits = {
+            cpu    = "200m"
+            memory = "256Mi"
+          }
+        }
+      }
+
+      "prometheus-node-exporter" = {
+        resources = {
+          requests = {
+            cpu    = "50m"
+            memory = "64Mi"
+          }
+          limits = {
+            cpu    = "200m"
+            memory = "128Mi"
+          }
+        }
+      }
+    })
+  ]
+
+  depends_on = [
+    helm_release.external_secrets,
+      helm_release.lb_controller,
+    kubectl_manifest.grafana_admin_external_secret,
+    kubernetes_storage_class_v1.observability_gp3
+  ]
+}
+
+
+# ─── Helm Release: Elasticsearch (single-node, dev-sized) ────────────────────
+resource "helm_release" "elasticsearch" {
+  name       = "elasticsearch"
+  repository = "https://helm.elastic.co"
+  chart      = "elasticsearch"
+  namespace  = kubernetes_namespace.observability.metadata[0].name
+  version    = "8.5.1"
+  atomic          = true
+  cleanup_on_fail = true
+  timeout         = 900
+  wait            = true
+
+  values = [
+    yamlencode({
+      replicas   = 1
+      minimumMasterNodes = 1
+
+      esJavaOpts = "-Xmx1g -Xms1g"
+
+      esConfig = {
+        "elasticsearch.yml" = <<-EOT
+          xpack.security.enabled: false
+          xpack.security.http.ssl.enabled: false
+          xpack.security.transport.ssl.enabled: false
+        EOT
+      }
+
+      resources = {
+        requests = {
+          cpu    = "500m"
+          memory = "2Gi"
+        }
+        limits = {
+          cpu    = "1000m"
+          memory = "3Gi"
+        }
+      }
+
+      volumeClaimTemplate = {
+        storageClassName = kubernetes_storage_class_v1.observability_gp3.metadata[0].name
+        accessModes       = ["ReadWriteOnce"]
+        resources = {
+          requests = {
+            storage = "20Gi"
+          }
+        }
+      }
+
+      # Single-node dev cluster — disable strict bootstrap checks that assume
+      # multi-node HA setups
+      clusterHealthCheckParams = "wait_for_status=yellow&timeout=1s"
+
+      antiAffinity = "soft"
+    })
+  ]
+
+  depends_on = [
+    helm_release.lb_controller,
+    kubernetes_storage_class_v1.observability_gp3
+  ]
+}
+
+# ─── Helm Release: Kibana ──────────────────────────────────────────────────────
+resource "helm_release" "kibana" {
+  name       = "kibana"
+  repository = "https://helm.elastic.co"
+  chart      = "kibana"
+  namespace  = kubernetes_namespace.observability.metadata[0].name
+  version    = "8.5.1"
+  atomic          = true
+  cleanup_on_fail = true
+  timeout         = 600
+  wait            = true
+
+  values = [
+    yamlencode({
+      elasticsearchHosts = "https://elasticsearch-master:9200"
+
+      resources = {
+        requests = {
+          cpu    = "100m"
+          memory = "256Mi"
+        }
+        limits = {
+          cpu    = "500m"
+          memory = "512Mi"
+        }
+      }
+
+      service = {
+        type = "ClusterIP"
+      }
+    })
+  ]
+
+  depends_on = [
+    helm_release.elasticsearch
+  ]
+}
+
+# ─── Helm Release: Fluent Bit (log shipper, DaemonSet) ────────────────────────
+resource "helm_release" "fluent_bit" {
+  name       = "fluent-bit"
+  repository = "https://fluent.github.io/helm-charts"
+  chart      = "fluent-bit"
+  namespace  = kubernetes_namespace.observability.metadata[0].name
+  version    = "0.57.9"
+  atomic          = true
+  cleanup_on_fail = true
+  timeout         = 300
+  wait            = true
+
+  values = [
+    yamlencode({
+      resources = {
+        requests = {
+          cpu    = "50m"
+          memory = "64Mi"
+        }
+        limits = {
+          cpu    = "200m"
+          memory = "128Mi"
+        }
+      }
+
+      config = {
+        outputs = <<-EOT
+          [OUTPUT]
+              Name            es
+              Match           kube.*
+              Host            elasticsearch-master
+              Port            9200
+              Logstash_Format On
+              Logstash_Prefix ecommerce-lite
+              Retry_Limit     False
+              Suppress_Type_Name On
+        EOT
+      }
+    })
+  ]
+
+  depends_on = [
+    helm_release.elasticsearch
+  ]
+}
+
+# ─── Helm Release: Jaeger (all-in-one, dev-sized): ────────────────────
+
+resource "helm_release" "jaeger" {
+  name       = "jaeger"
+  repository = "https://jaegertracing.github.io/helm-charts"
+  chart      = "jaeger"
+  namespace  = kubernetes_namespace.observability.metadata[0].name
+  version    = "4.11.1"
+  atomic          = true
+  cleanup_on_fail = true
+  timeout         = 300
+  wait            = true
+
+  values = [
+    yamlencode({
+      allInOne = {
+        enabled = true
+        resources = {
+          requests = {
+            cpu    = "100m"
+            memory = "256Mi"
+          }
+          limits = {
+            cpu    = "500m"
+            memory = "512Mi"
+          }
+        }
+      }
+
+      storage = {
+        type = "badger"
+      }
+
+      provisionDataStore = {
+        cassandra     = false
+        elasticsearch = false
+      }
+
+      collector = {
+        enabled = false
+      }
+      query = {
+        enabled = false
+      }
+      agent = {
+        enabled = false
+      }
+    })
+  ]
+
+  depends_on = [
+    helm_release.lb_controller
+  ]
+}
+
+#OTel Collector (receives OTLP on 4317 from your apps, forwards to Jaeger):
+
+resource "helm_release" "otel_collector" {
+  name       = "otel-collector"
+  repository = "https://open-telemetry.github.io/opentelemetry-helm-charts"
+  chart      = "opentelemetry-collector"
+  namespace  = kubernetes_namespace.observability.metadata[0].name
+  version    = "0.165.0"
+  atomic          = true
+  cleanup_on_fail = true
+  timeout         = 300
+  wait            = true
+
+  values = [
+    yamlencode({
+      mode = "deployment"
+
+      fullnameOverride = "otel-collector"
+
+      image = {
+      repository = "otel/opentelemetry-collector-contrib"
+      tag        = "0.116.1"
+      }
+
+      resources = {
+        requests = {
+          cpu    = "100m"
+          memory = "128Mi"
+        }
+        limits = {
+          cpu    = "500m"
+          memory = "256Mi"
+        }
+      }
+
+      config = {
+        receivers = {
+          otlp = {
+            protocols = {
+              grpc = {
+                endpoint = "0.0.0.0:4317"
+              }
+              http = {
+                endpoint = "0.0.0.0:4318"
+              }
+            }
+          }
+        }
+
+        exporters = {
+          "otlp/jaeger" = {
+            endpoint = "jaeger:4317"
+            tls = {
+              insecure = true
+            }
+          }
+        }
+
+        service = {
+          pipelines = {
+            traces = {
+              receivers  = ["otlp"]
+              exporters  = ["otlp/jaeger"]
+            }
+          }
+        }
+      }
+    })
+  ]
+
+  depends_on = [
+    helm_release.jaeger
+  ]
 }

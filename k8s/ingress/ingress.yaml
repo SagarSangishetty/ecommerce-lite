@@ -3,21 +3,21 @@
 # Routes external traffic to frontend service
 # ALB Controller must be installed on EKS
 # (you already did this in your observability project)
-
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ecommerce-ingress
   namespace: ecommerce-dev
   annotations:
-    kubernetes.io/ingress.class:               alb
-    alb.ingress.kubernetes.io/scheme:          internet-facing
-    alb.ingress.kubernetes.io/target-type:     ip
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/healthcheck-path: /health
 spec:
   rules:
     - http:
         paths:
+
           - path: /
             pathType: Prefix
             backend:
@@ -25,3 +25,27 @@ spec:
                 name: frontend
                 port:
                   number: 3000
+
+          - path: /products
+            pathType: Prefix
+            backend:
+              service:
+                name: product-service
+                port:
+                  number: 8002
+
+          - path: /users
+            pathType: Prefix
+            backend:
+              service:
+                name: user-service
+                port:
+                  number: 8001
+
+          - path: /orders
+            pathType: Prefix
+            backend:
+              service:
+                name: order-service
+                port:
+                  number: 8003
