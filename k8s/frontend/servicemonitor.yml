@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: frontend
+  namespace: ecommerce-dev
+spec:
+  selector:
+    matchLabels:
+      app: frontend
+
+  namespaceSelector:
+    matchNames:
+      - ecommerce-dev
+
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
