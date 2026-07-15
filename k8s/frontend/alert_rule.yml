@@ -5,27 +5,27 @@ metadata:
   namespace: ecommerce-dev
 spec:
   groups:
-    - name: frontend.rules
-      rules:
+   - name: frontend.rules
+     rules:
 
-        - alert: FrontendDown
-          expr: up{service="order-service"} == 0
-          for: 1m
+      - alert: FrontendDown
+        expr: up{job="frontend"} == 0
+        for: 1m
 
-          labels:
-            severity: critical
+        labels:
+         severity: critical
 
-          annotations:
-            summary: Frontend is down
-            description: Order Service has not been reachable for more than 2 minutes.
+        annotations:
+          summary: Frontend is down
+          description: Frontend has not been reachable for more than 1 minute.
 
-        - alert: FrontendHighCPU
-          expr: rate(container_cpu_usage_seconds_total{pod=~"order-service.*"}[5m]) > 0.8
-          for: 1m
+      - alert: FrontendHighCPU
+        expr: rate(container_cpu_usage_seconds_total{pod=~"frontend.*"}[5m]) > 0.8
+        for: 1m
 
-          labels:
-            severity: warning
+        labels:
+          severity: warning
 
-          annotations:
-            summary: Frontend CPU usage is high
-            description: CPU usage has exceeded 80%.
+        annotations:
+          summary: Frontend CPU usage is high
+          description: CPU usage has exceeded 80%.

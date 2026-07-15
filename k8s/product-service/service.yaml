@@ -11,6 +11,7 @@ spec:
   selector:
     app: product-service
   ports:
-    - port: 8002
+    - name: http  
+      port: 8002
       targetPort: 8002
       protocol: TCP
