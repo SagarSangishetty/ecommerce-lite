@@ -677,16 +677,34 @@ resource "helm_release" "fluent_bit" {
       }
 
       config = {
+        filters = <<-EOT
+          [FILTER]
+              Name                kubernetes
+              Match               kube.*
+              Merge_Log           Off
+              Keep_Log            On
+              K8S-Logging.Parser  On
+              K8S-Logging.Exclude On
+              Labels              Off
+              Annotations         Off
+        EOT
+
         outputs = <<-EOT
           [OUTPUT]
-              Name            es
-              Match           kube.*
-              Host            elasticsearch-master
-              Port            9200
-              Logstash_Format On
-              Logstash_Prefix ecommerce-lite
-              Retry_Limit     False
-              Suppress_Type_Name On
+              Name                  es
+              Match                 kube.*
+              Host                  elasticsearch-master
+              Port                  9200
+              tls                   On
+              tls.Verify            Off
+              HTTP_User             elastic
+              HTTP_Passwd           ghpUHnXA77cRmq1f
+              Logstash_Format       On
+              Logstash_Prefix       ecommerce-lite
+              Retry_Limit           False
+              Suppress_Type_Name    On
+              Trace_Error           On
+              Trace_Output          On
         EOT
       }
     })
