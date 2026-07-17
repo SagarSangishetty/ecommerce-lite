@@ -129,6 +129,7 @@ jobs:
         run: |
           find k8s -name "*.yaml" -o -name "*.yml" ! -path "k8s/namespaces/*" | while read file; do
             sed -i "s|namespace:.*ecommerce.*|namespace: ${{ env.NAMESPACE }}|g" "$file"
+            sed -i "s|environment: dev|environment: ${{ env.ENVIRONMENT }}|g" "$file"
           done
 
       # ── INJECT NAMESPACE INTO CONFIGMAP SERVICE URLS ──────────
@@ -138,7 +139,7 @@ jobs:
 
       - name: Inject namespace into ConfigMap service URLs
         run: |
-          sed -i "s|ecommerce-dev\|ecommerce-prod|${{ env.NAMESPACE }}|g" \
+          sed -i "s|ecommerce-dev|${{ env.NAMESPACE }}|g" \
             k8s/configmap.yaml
 
       # ── INJECT IMAGES ─────────────────────────────────────────
@@ -180,6 +181,12 @@ jobs:
 
           echo "=== ConfigMap service URLs ==="
           grep -A1 "SERVICE_URL" k8s/configmap.yaml
+
+           echo "=== Sanity check: no leftover dev references ==="
+           if grep -r "ecommerce-dev" k8s/ --include="*.yaml" --include="*.yml" | grep -v "namespaces/dev-namespace.yaml"; then
+            echo "ERROR: found leftover ecommerce-dev references after injection"
+            exit 1
+           fi
 
       # ── APPLY IN ORDER ────────────────────────────────────────
       # Order matters:
