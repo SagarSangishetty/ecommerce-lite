@@ -140,7 +140,7 @@ jobs:
 
       - name: Inject namespace into ConfigMap service URLs
         run: |
-          sed -i "s|namespace:.*|ecommerce-prod|${{ env.NAMESPACE }}|g" \
+          sed -i "s|ecommerce-dev\|ecommerce-prod|${{ env.NAMESPACE }}|g" \
             k8s/configmap.yaml
 
       # ── INJECT IMAGES ─────────────────────────────────────────
