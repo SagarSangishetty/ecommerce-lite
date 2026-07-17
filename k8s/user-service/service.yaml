@@ -1,7 +1,7 @@
 # user-service/service.yaml
 # ClusterIP — internal only
 # Other services reach user-service at:
-# http://user-service.ecommerce-dev.svc.cluster.local:8001
+# http://user-service.<namespace>.svc.cluster.local:8001
 # Or simply http://user-service:8001 within same namespace
 
 apiVersion: v1

@@ -186,9 +186,14 @@ jobs:
           grep -A1 "SERVICE_URL" k8s/configmap.yaml
 
           echo "=== Sanity check: no leftover dev references ==="
-          if grep -r "ecommerce-dev" k8s/ --include="*.yaml" --include="*.yml" | grep -v "namespaces/dev-namespace.yaml"; then
-            echo "ERROR: found leftover ecommerce-dev references after injection"
-            exit 1
+          if [ "${{ env.NAMESPACE }}" != "ecommerce-dev" ]; then
+            echo "=== Sanity check: no leftover dev references ==="
+            if grep -r "ecommerce-dev" k8s/ --include="*.yaml" --include="*.yml" \
+               | grep -v "namespaces/dev-namespace.yaml" \
+               | grep -v "^k8s/.*:#"; then
+              echo "ERROR: found leftover ecommerce-dev references after injection"
+              exit 1
+            fi
           fi
 
       # ── APPLY IN ORDER ────────────────────────────────────────
