@@ -130,6 +130,7 @@ jobs:
           find k8s -name "*.yaml" -o -name "*.yml" ! -path "k8s/namespaces/*" | while read file; do
             sed -i "s|namespace:.*ecommerce.*|namespace: ${{ env.NAMESPACE }}|g" "$file"
             sed -i "s|environment: dev|environment: ${{ env.ENVIRONMENT }}|g" "$file"
+            sed -i "s|- ecommerce-dev|- ${{ env.NAMESPACE }}|g" "$file"
           done
 
       # ── INJECT NAMESPACE INTO CONFIGMAP SERVICE URLS ──────────
