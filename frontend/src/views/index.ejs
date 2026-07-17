@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Ecommerce Lite</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+    nav { margin-bottom: 30px; }
+    nav a { margin-right: 20px; text-decoration: none; color: #333; font-weight: bold; }
+    nav a:hover { color: #0066cc; }
+    h1 { color: #333; }
+    .product-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .product-card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+    .product-card h3 { margin: 0 0 8px; }
+    .price { color: #0066cc; font-size: 1.2em; font-weight: bold; }
+    .stock { color: #666; font-size: 0.9em; }
+    .trace-id { margin-top: 40px; font-size: 0.75em; color: #999; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a href="/">Products</a>
+    <a href="/register">Register</a>
+    <a href="/order">Place Order</a>
+  </nav>
+
+  <h1>🛒 Ecommerce Lite</h1>
+
+  <div class="product-grid">
+    <% products.forEach(product => { %>
+      <div class="product-card">
+        <h3><%= product.name %></h3>
+        <p><%= product.description || 'No description' %></p>
+        <p class="price">₹<%= product.price %></p>
+        <p class="stock">Stock: <%= product.stock %></p>
+      </div>
+    <% }) %>
+  </div>
+
+  <% if (products.length === 0) { %>
+    <p>No products available. Add some products via the API.</p>
+  <% } %>
+
+  <p class="trace-id">Request ID: <%= request_id %></p>
+
+</body>
+</html>

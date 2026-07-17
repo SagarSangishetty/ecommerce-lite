@@ -1,0 +1,185 @@
+# docker-compose.yml
+# Local development environment
+# Runs all 4 services + PostgreSQL in one command
+#
+# Usage:
+#   docker-compose up --build        # build and start all
+#   docker-compose up -d             # run in background
+#   docker-compose logs -f           # follow logs
+#   docker-compose down              # stop all
+#   docker-compose down -v           # stop and delete volumes
+
+version: '3.8'
+
+services:
+
+  # ── DATABASE ──────────────────────────────────────────────────
+  # Single PostgreSQL instance
+  # All 3 services connect to the same DB
+  # Each creates its own table on startup
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: ecommerce-postgres
+    environment:
+      POSTGRES_USER:     ecommerce
+      POSTGRES_PASSWORD: ecommerce123
+      POSTGRES_DB:       ecommerce
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecommerce"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecommerce-network
+
+
+  # ── USER SERVICE ──────────────────────────────────────────────
+
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-user-service
+    environment:
+      DATABASE_URL:                  postgresql://ecommerce:ecommerce123@postgres:5432/ecommerce
+      OTEL_EXPORTER_OTLP_ENDPOINT:  http://otel-collector:4317
+      OTEL_SERVICE_NAME:            user-service
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+
+  # ── PRODUCT SERVICE ───────────────────────────────────────────
+
+  product-service:
+    build:
+      context: ./services/product-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-product-service
+    environment:
+      DATABASE_URL:                  postgresql://ecommerce:ecommerce123@postgres:5432/ecommerce
+      OTEL_EXPORTER_OTLP_ENDPOINT:  http://otel-collector:4317
+      OTEL_SERVICE_NAME:            product-service
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+
+  # ── ORDER SERVICE ─────────────────────────────────────────────
+
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-order-service
+    environment:
+      DATABASE_URL:                  postgresql://ecommerce:ecommerce123@postgres:5432/ecommerce
+      OTEL_EXPORTER_OTLP_ENDPOINT:  http://otel-collector:4317
+      OTEL_SERVICE_NAME:            order-service
+      # Internal service URLs — use container names as hostnames
+      # Docker networking resolves container names automatically
+      USER_SERVICE_URL:             http://user-service:8001
+      PRODUCT_SERVICE_URL:          http://product-service:8002
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+
+  # ── FRONTEND ──────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ecommerce-frontend
+    environment:
+      PORT:                 3000
+      # Container names resolve as hostnames in Docker network
+      USER_SERVICE_URL:     http://user-service:8001
+      PRODUCT_SERVICE_URL:  http://product-service:8002
+      ORDER_SERVICE_URL:    http://order-service:8003
+    ports:
+      - "3000:3000"
+    depends_on:
+      user-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e",
+             "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ecommerce-network
+    restart: unless-stopped
+
+
+# ── VOLUMES ────────────────────────────────────────────────────
+# Named volume for PostgreSQL data
+# Persists data between docker-compose restarts
+# docker-compose down -v removes this volume and all data
+
+volumes:
+  postgres_data:
+    driver: local
+
+
+# ── NETWORKS ───────────────────────────────────────────────────
+# All services on one network
+# Container names act as DNS hostnames
+# user-service can reach postgres at hostname "postgres"
+# order-service can reach user-service at "user-service"
+
+networks:
+  ecommerce-network:
+    driver: bridge

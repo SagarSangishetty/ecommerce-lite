@@ -1,0 +1,31 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: user-service-alerts
+  namespace: ecommerce-dev
+spec:
+  groups:
+    - name: user-service.rules
+      rules:
+
+        - alert: UserServiceDown
+          expr: up{service="user-service"} == 0
+          for: 1m
+
+          labels:
+            severity: critical
+
+          annotations:
+            summary: User Service is down
+            description: User Service has not been reachable for more than 2 minutes.
+
+        - alert: UserServiceHighCPU
+          expr: rate(container_cpu_usage_seconds_total{pod=~"user-service.*"}[5m]) > 0.8
+          for: 1m
+
+          labels:
+            severity: warning
+
+          annotations:
+            summary: User Service CPU usage is high
+            description: CPU usage has exceeded 80%.

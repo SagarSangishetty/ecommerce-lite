@@ -1,0 +1,31 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: frontend-alerts
+  namespace: ecommerce-dev
+spec:
+  groups:
+   - name: frontend.rules
+     rules:
+
+      - alert: FrontendDown
+        expr: up{job="frontend"} == 0
+        for: 1m
+
+        labels:
+         severity: critical
+
+        annotations:
+          summary: Frontend is down
+          description: Frontend has not been reachable for more than 1 minute.
+
+      - alert: FrontendHighCPU
+        expr: rate(container_cpu_usage_seconds_total{pod=~"frontend.*"}[5m]) > 0.8
+        for: 1m
+
+        labels:
+          severity: warning
+
+        annotations:
+          summary: Frontend CPU usage is high
+          description: CPU usage has exceeded 80%.

@@ -1,0 +1,22 @@
+# frontend/service.yaml
+# NodePort — exposes frontend to ALB
+# ALB Ingress Controller needs NodePort or ClusterIP
+# with proper annotations to create AWS Load Balancer
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: ecommerce-dev
+  labels:
+    app: frontend
+    environment: dev
+spec:
+  type: NodePort
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP

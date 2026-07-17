@@ -1,0 +1,16 @@
+1. Create RDS instance
+   Engine        : PostgreSQL 15
+   Instance type : db.t3.micro
+   VPC           : same as your EKS cluster
+   DB name       : ecommerce
+   Username      : ecommerce
+   Password      : choose a strong password
+
+2. Security group on RDS
+   Inbound rule:
+   Type     : PostgreSQL
+   Port     : 5432
+   Source   : EKS node group security group ID
+
+3. Note the RDS endpoint
+   Format: xxx.xxxxxxxx.ap-south-1.rds.amazonaws.com

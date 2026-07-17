@@ -1,0 +1,248 @@
+# ci-cd-prod.yml
+# Triggers on every push to main branch
+# Builds all 4 images, pushes to ECR, deploys to ecommerce-prod namespace
+#
+# Production standard practices:
+# - OIDC authentication (no static AWS keys)
+# - Docker layer caching (faster builds)
+# - sed-based manifest injection (no placeholder syntax in manifests)
+# - rollout status verification (real confirmation, not just apply)
+# - needs: dependency (deploy only if build succeeds)
+
+name: CI-CD Production Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  IMAGE_TAG:   ${{ github.sha }}
+  NAMESPACE:   ecommerce-prod
+  ENVIRONMENT: prod
+
+jobs:
+
+  # ── JOB 1: BUILD AND PUSH ALL IMAGES TO ECR ──────────────────
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region:     ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push user-service
+        uses: docker/build-push-action@v5
+        with:
+          context:    ./services/user-service
+          file:       ./services/user-service/Dockerfile
+          push:       true
+          tags: |
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:prod-latest
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:prod-${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=user-service-prod
+          cache-to:   type=gha,scope=user-service-prod,mode=max
+
+      - name: Build and Push product-service
+        uses: docker/build-push-action@v5
+        with:
+          context:    ./services/product-service
+          file:       ./services/product-service/Dockerfile
+          push:       true
+          tags: |
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:prod-latest
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:prod-${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=product-service-prod
+          cache-to:   type=gha,scope=product-service-prod,mode=max
+
+      - name: Build and Push order-service
+        uses: docker/build-push-action@v5
+        with:
+          context:    ./services/order-service
+          file:       ./services/order-service/Dockerfile
+          push:       true
+          tags: |
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:prod-latest
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:prod-${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=order-service-prod
+          cache-to:   type=gha,scope=order-service-prod,mode=max
+
+      - name: Build and Push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context:    ./frontend
+          file:       ./frontend/Dockerfile
+          push:       true
+          tags: |
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:prod-latest
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:prod-${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=frontend-prod
+          cache-to:   type=gha,scope=frontend-prod,mode=max
+
+
+  # ── JOB 2: DEPLOY TO EKS PROD NAMESPACE ───────────────────────
+  deploy-to-eks:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: prod   # ← requires manual approval if configured in repo settings
+
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region:     ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name   ${{ secrets.EKS_CLUSTER_NAME }}
+
+      # ── INJECT NAMESPACE ──────────────────────────────────────
+      # Finds any namespace field containing ecommerce
+      # and replaces the value with the correct namespace
+      # Works on all manifest files except namespace definitions
+
+      - name: Inject namespace into manifests
+        run: |
+          find k8s \( -name "*.yaml" -o -name "*.yml" \) ! -path "k8s/namespaces/*" | while read file; do
+            sed -i "s|namespace:.*ecommerce.*|namespace: ${{ env.NAMESPACE }}|g" "$file"
+          done
+
+      # ── INJECT NAMESPACE INTO CONFIGMAP SERVICE URLS ──────────
+      # Service URLs inside ConfigMap contain namespace in DNS name
+      # e.g. http://user-service.ecommerce-prod.svc.cluster.local
+      # Replace whatever ecommerce namespace is there with correct one
+
+      - name: Inject namespace into ConfigMap service URLs
+        run: |
+          sed -i "s|namespace:.*|ecommerce-prod|${{ env.NAMESPACE }}|g" \
+            k8s/configmap.yaml
+
+      # ── INJECT IMAGES ─────────────────────────────────────────
+      # Targets each deployment file specifically
+      # Replaces whatever is on the image: line with correct ECR URI
+      # Using specific files prevents accidental replacement elsewhere
+
+      - name: Inject images into deployments
+        run: |
+          sed -i \
+            "s|image:.*|image: ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:prod-${{ env.IMAGE_TAG }}|g" \
+            k8s/user-service/deployment.yaml
+
+          sed -i \
+            "s|image:.*|image: ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:prod-${{ env.IMAGE_TAG }}|g" \
+            k8s/product-service/deployment.yaml
+
+          sed -i \
+            "s|image:.*|image: ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:prod-${{ env.IMAGE_TAG }}|g" \
+            k8s/order-service/deployment.yaml
+
+          sed -i \
+            "s|image:.*|image: ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:prod-${{ env.IMAGE_TAG }}|g" \
+            k8s/frontend/deployment.yaml
+
+      # ── VERIFY REPLACEMENTS ───────────────────────────────────
+      # Print what the pipeline is about to apply
+      # Catches any sed issues before kubectl apply runs
+      # You can see exact values in the pipeline logs
+
+      - name: Verify manifest replacements
+        run: |
+          echo "=== Namespaces ==="
+          grep -r "namespace:" k8s/ --include="*.yaml" \
+            | grep -v "namespaces/"
+
+          echo "=== Images ==="
+          grep -r "image:" k8s/ --include="*.yaml"
+
+          echo "=== ConfigMap service URLs ==="
+          grep -A1 "SERVICE_URL" k8s/configmap.yaml
+
+      # ── APPLY IN ORDER ────────────────────────────────────────
+      # Order matters:
+      # 1. Namespace first — everything else needs it to exist
+      # 2. ConfigMap — deployments reference it on startup
+      # 3. Services — deployments need services for DNS
+      # 4. Deployments — pods start and pull from ECR
+      # 5. Ingress — ALB created after pods are running
+
+      - name: Apply namespace
+        run: kubectl apply -f k8s/namespaces/prod-namespace.yaml
+
+      - name: Apply Secret
+        run:  kubectl apply -f k8s/prod-external-secret.yaml
+    
+      - name: Apply ConfigMap
+        run: kubectl apply -f k8s/configmap.yaml --validate=false
+
+      - name: Apply Services
+        run: |
+          kubectl apply -f k8s/user-service/service.yaml --validate=false
+          kubectl apply -f k8s/product-service/service.yaml --validate=false
+          kubectl apply -f k8s/order-service/service.yaml --validate=false
+          kubectl apply -f k8s/frontend/service.yaml --validate=false
+
+      - name: Apply Deployments
+        run: |
+          kubectl apply -f k8s/user-service/deployment.yaml --validate=false
+          kubectl apply -f k8s/product-service/deployment.yaml --validate=false
+          kubectl apply -f k8s/order-service/deployment.yaml --validate=false
+          kubectl apply -f k8s/frontend/deployment.yaml --validate=false
+
+      - name: Apply Ingress
+        run: kubectl apply -f k8s/ingress/ingress.yaml --validate=false
+
+      # ── VERIFY ROLLOUT ────────────────────────────────────────
+      # Waits until all pods are Running and Ready
+      # Pipeline fails if any deployment doesn't stabilise
+      # This is real CD confirmation — not just manifest applied
+
+      - name: Verify all deployments
+        run: |
+          kubectl rollout status deployment/user-service \
+            -n ${{ env.NAMESPACE }} --timeout=180s
+
+          kubectl rollout status deployment/product-service \
+            -n ${{ env.NAMESPACE }} --timeout=180s
+
+          kubectl rollout status deployment/order-service \
+            -n ${{ env.NAMESPACE }} --timeout=180s
+
+          kubectl rollout status deployment/frontend \
+            -n ${{ env.NAMESPACE }} --timeout=180s
+
+      - name: Get ALB URL
+        run: |
+          echo "=== Production deployment complete ==="
+          echo "Namespace: ${{ env.NAMESPACE }}"
+          echo "Image tag: ${{ env.IMAGE_TAG }}"
+          echo "ALB URL:"
+          kubectl get ingress ecommerce-ingress \
+            -n ${{ env.NAMESPACE }} \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+          echo ""

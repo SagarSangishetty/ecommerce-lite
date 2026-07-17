@@ -1,0 +1,31 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: order-service-alerts
+  namespace: ecommerce-dev
+spec:
+  groups:
+    - name: order-service.rules
+      rules:
+
+        - alert: OrderServiceDown
+          expr: up{service="order-service"} == 0
+          for: 1m
+
+          labels:
+            severity: critical
+
+          annotations:
+            summary: Order Service is down
+            description: Order Service has not been reachable for more than 2 minutes.
+
+        - alert: OrderServiceHighCPU
+          expr: rate(container_cpu_usage_seconds_total{pod=~"order-service.*"}[5m]) > 0.8
+          for: 1m
+
+          labels:
+            severity: warning
+
+          annotations:
+            summary: Order Service CPU usage is high
+            description: CPU usage has exceeded 80%.
