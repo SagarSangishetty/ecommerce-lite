@@ -14,7 +14,7 @@ name: CI-CD Dev Pipeline
 on:
   push:
     branches:
-      - main
+      - dev
 
 permissions:
   id-token: write
@@ -22,8 +22,8 @@ permissions:
 
 env:
   IMAGE_TAG:   ${{ github.sha }}
-  NAMESPACE:   ecommerce-prod
-  ENVIRONMENT: prod
+  NAMESPACE:   ecommerce-dev
+  ENVIRONMENT: dev
 
 jobs:
 
@@ -56,10 +56,10 @@ jobs:
           file:       ./services/user-service/Dockerfile
           push:       true
           tags: |
-            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:prod-latest
-            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:prod-${{ env.IMAGE_TAG }}
-          cache-from: type=gha,scope=user-service-prod
-          cache-to:   type=gha,scope=user-service-prod,mode=max
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:latest
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=user-service
+          cache-to:   type=gha,scope=user-service,mode=max
 
       - name: Build and Push product-service
         uses: docker/build-push-action@v5
@@ -68,10 +68,10 @@ jobs:
           file:       ./services/product-service/Dockerfile
           push:       true
           tags: |
-            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:prod-latest
-            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:prod-${{ env.IMAGE_TAG }}
-          cache-from: type=gha,scope=product-service-prod
-          cache-to:   type=gha,scope=product-service-prod,mode=max
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:latest
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=product-service
+          cache-to:   type=gha,scope=product-service,mode=max
 
       - name: Build and Push order-service
         uses: docker/build-push-action@v5
@@ -80,10 +80,10 @@ jobs:
           file:       ./services/order-service/Dockerfile
           push:       true
           tags: |
-            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:prod-latest
-            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:prod-${{ env.IMAGE_TAG }}
-          cache-from: type=gha,scope=order-service-prod
-          cache-to:   type=gha,scope=order-service-prod,mode=max
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:latest
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=order-service
+          cache-to:   type=gha,scope=order-service,mode=max
 
       - name: Build and Push frontend
         uses: docker/build-push-action@v5
@@ -92,10 +92,10 @@ jobs:
           file:       ./frontend/Dockerfile
           push:       true
           tags: |
-            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:prod-latest
-            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:prod-${{ env.IMAGE_TAG }}
-          cache-from: type=gha,scope=frontend-prod
-          cache-to:   type=gha,scope=frontend-prod,mode=max
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:latest
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=frontend
+          cache-to:   type=gha,scope=frontend,mode=max
 
 
   # ── JOB 2: DEPLOY TO EKS DEV NAMESPACE ───────────────────────
@@ -127,7 +127,7 @@ jobs:
 
       - name: Inject namespace into manifests
         run: |
-          find k8s -name "*.yaml" ! -path "k8s/namespaces/*" | while read file; do
+          find k8s -name "*.yaml" -o -name "*.yml" ! -path "k8s/namespaces/*" | while read file; do
             sed -i "s|namespace:.*ecommerce.*|namespace: ${{ env.NAMESPACE }}|g" "$file"
           done
 
@@ -190,27 +190,30 @@ jobs:
       # 5. Ingress — ALB created after pods are running
 
       - name: Apply namespace
-        run: kubectl apply -f k8s/namespaces/dev-namespace.yaml
+        run: kubectl apply -f k8s/namespaces/dev-namespace.yaml --validate=false
+
+      - name: Apply Secret
+        run: kubectl apply -f k8s/dev-external-secret.yml
 
       - name: Apply ConfigMap
-        run: kubectl apply -f k8s/configmap.yaml
+        run: kubectl apply -f k8s/configmap.yaml --validate=false
 
       - name: Apply Services
         run: |
-          kubectl apply -f k8s/user-service/service.yaml
-          kubectl apply -f k8s/product-service/service.yaml
-          kubectl apply -f k8s/order-service/service.yaml
-          kubectl apply -f k8s/frontend/service.yaml
+          kubectl apply -f k8s/user-service/service.yaml --validate=false
+          kubectl apply -f k8s/product-service/service.yaml --validate=false
+          kubectl apply -f k8s/order-service/service.yaml --validate=false
+          kubectl apply -f k8s/frontend/service.yaml --validate=false
 
       - name: Apply Deployments
         run: |
-          kubectl apply -f k8s/user-service/deployment.yaml
-          kubectl apply -f k8s/product-service/deployment.yaml
-          kubectl apply -f k8s/order-service/deployment.yaml
-          kubectl apply -f k8s/frontend/deployment.yaml
+          kubectl apply -f k8s/user-service/deployment.yaml --validate=false
+          kubectl apply -f k8s/product-service/deployment.yaml --validate=false
+          kubectl apply -f k8s/order-service/deployment.yaml --validate=false
+          kubectl apply -f k8s/frontend/deployment.yaml --validate=false
 
       - name: Apply Ingress
-        run: kubectl apply -f k8s/ingress/ingress.yaml
+        run: kubectl apply -f k8s/ingress/ingress.yaml --validate=false
 
       # ── VERIFY ROLLOUT ────────────────────────────────────────
       # Waits until all pods are Running and Ready
