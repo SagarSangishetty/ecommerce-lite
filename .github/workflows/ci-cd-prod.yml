@@ -46,56 +46,114 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
+          sudo mv ./bin/trivy /usr/local/bin/
+          trivy --version
 
-      - name: Build and Push user-service
+      - name: Install Trivy
+        uses: aquasecurity/trivy-action@master
+
+      - name: Build user-service
         uses: docker/build-push-action@v5
         with:
           context:    ./services/user-service
           file:       ./services/user-service/Dockerfile
-          push:       true
+          push:       false
+          load:       true
           tags: |
             ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:prod-latest
             ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:prod-${{ env.IMAGE_TAG }}
           cache-from: type=gha,scope=user-service-prod
           cache-to:   type=gha,scope=user-service-prod,mode=max
 
-      - name: Build and Push product-service
+      - name: Build product-service
         uses: docker/build-push-action@v5
         with:
           context:    ./services/product-service
           file:       ./services/product-service/Dockerfile
-          push:       true
+          push:       false
+          load:       true
           tags: |
             ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:prod-latest
             ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:prod-${{ env.IMAGE_TAG }}
           cache-from: type=gha,scope=product-service-prod
           cache-to:   type=gha,scope=product-service-prod,mode=max
 
-      - name: Build and Push order-service
+      - name: Build order-service
         uses: docker/build-push-action@v5
         with:
           context:    ./services/order-service
           file:       ./services/order-service/Dockerfile
-          push:       true
+          push:       false
+          load:       true
           tags: |
             ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:prod-latest
             ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:prod-${{ env.IMAGE_TAG }}
           cache-from: type=gha,scope=order-service-prod
           cache-to:   type=gha,scope=order-service-prod,mode=max
 
-      - name: Build and Push frontend
+      - name: Build frontend
         uses: docker/build-push-action@v5
         with:
           context:    ./frontend
           file:       ./frontend/Dockerfile
-          push:       true
+          push:       false
+          load:       true
           tags: |
             ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:prod-latest
             ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:prod-${{ env.IMAGE_TAG }}
           cache-from: type=gha,scope=frontend-prod
           cache-to:   type=gha,scope=frontend-prod,mode=max
+
+      - name: Scan user-service
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:prod-${{ env.IMAGE_TAG }}
+
+      - name: Scan product-service
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \          
+            --exit-code 1 \
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:prod-${{ env.IMAGE_TAG }}
+
+      - name: Scan order-service
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:prod-${{ env.IMAGE_TAG }}
+
+      - name: Scan frontend
+        run: |
+          trivy image \
+            --severity HIGH,CRITICAL \\
+            --ignore-unfixed \
+            --exit-code 1 \
+            ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:prod-${{ env.IMAGE_TAG }}
+
+      - name: Push Images to ECR
+        run: |
+          docker push ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:prod-latest
+          docker push ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/user-service:prod-${{ env.IMAGE_TAG }}
+
+          docker push ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:prod-latest
+          docker push ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/product-service:prod-${{ env.IMAGE_TAG }}
+
+          docker push ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:prod-latest
+          docker push ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/order-service:prod-${{ env.IMAGE_TAG }}
+
+          docker push ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:prod-latest
+          docker push ${{ secrets.ECR_REGISTRY }}/ecommerce-lite/frontend:prod-${{ env.IMAGE_TAG }}
 
 
   # ── JOB 2: DEPLOY TO EKS PROD NAMESPACE ───────────────────────
